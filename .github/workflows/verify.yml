@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Jigokuraku01
+# Additional author attribution terms: see ../../ATTRIBUTION.md.
+name: Signed feed fixture
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: sovagrid/sovagrid-blueprint
+          ref: main
+          path: blueprint
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Sign disposable metadata and check it with the independent server verifier
+        env:
+          SOVAGRID_BLUEPRINT_ROOT: ${{ github.workspace }}/blueprint
+        run: python -m unittest discover -s tests -v

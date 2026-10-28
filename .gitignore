@@ -1,0 +1,14 @@
+# Signing secrets must never be published with release metadata.
+*.key
+*.pem
+*.p12
+*.pfx
+*.secret
+*private*
+*.age
+*.asc
+*.gpg
+.env
+.env.*
+__pycache__/
+*.pyc
