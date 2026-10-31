@@ -1,24 +1,26 @@
 # SovaGrid update feed
 
-This repository is reserved for signed release metadata used by independent SovaGrid servers. It is **inactive**: there is no `stable.json`, detached signature, or enabled server subscription. A public Ed25519 trust anchor is pinned in current Blueprint source; the private signing key is held outside Git, CI, and managed servers. Cloning this repository does not enable automatic updates.
+This repository publishes signed release metadata for independent SovaGrid servers. The first stable transition is from server `v0.13.0` to [`v0.14.0`](https://github.com/sovagrid/sovagrid-blueprint/releases/tag/server-v0.14.0). A public Ed25519 trust anchor is pinned in the installed Blueprint source; the private signing key is held outside Git, CI, and managed servers. Cloning this repository does not enable automatic updates.
 
-The verifier and its security contract live in [sovagrid-blueprint](https://github.com/sovagrid/sovagrid-blueprint/blob/main/RELEASE_FEED.md). A future active channel will publish `stable.json` and `stable.json.sig` in this repository, while the exact server archives remain GitHub release assets. The detached Ed25519 signature covers the original bytes of `stable.json`; servers must pin the reviewed public key in their installed code before accepting it. No server should obtain its trust key from this feed.
+The verifier and its security contract live in [sovagrid-blueprint](https://github.com/sovagrid/sovagrid-blueprint/blob/main/RELEASE_FEED.md). This repository contains `stable.json` and its detached `stable.json.sig`; exact server archives remain GitHub release assets. The detached Ed25519 signature covers the original bytes of `stable.json`; servers must pin the reviewed public key in their installed code before accepting it. No server obtains its trust key from this feed.
 
-Release metadata is kept separate from the server source bundle so that adding or updating the feed cannot change the source bundle's own SHA-256. An operator must still explicitly enable the channel in the product UI after a reviewed signing key, safe service migration, and end-to-end update test are released. Existing SovaGrid installations continue to use their one-candidate, administrator-approved update timer.
+Release metadata is kept separate from the server source bundle so that adding or updating the feed cannot change the source bundle's own SHA-256. An administrator enables the channel separately on each full-server installation in Web settings or a compatible Connect client. Until then, the one-candidate update timer remains available. A Hub with an external Agent uses its separate update path and cannot subscribe to this full-server feed yet.
 
 ## Reproducible publishing workflow
 
 `tools/feed.py` prepares metadata from the **public, already published** `server-vMAJOR.MINOR.PATCH/SovaGrid-server-source.tar.gz` asset. It refuses arbitrary URLs and unauthenticated mirrors. `inspect` downloads that asset, checks the archive layout, required source paths and bundle hashes, and reports its byte count, SHA-256, and the SHA-256 of the `sovagrid-bundle.json` inside it. A release reviewer records the archive SHA-256 independently. `publish` requires that reviewed SHA-256, downloads the asset again, compares every pin with the inspection, verifies a previous signed feed when extending a chain, and signs the final JSON bytes. `renew` extends only the UTC validity window while preserving the release chain and its archive pins. Neither command uploads to GitHub. These archive checks do not run the complete server update preflight; test the exact release asset with that preflight on a disposable Ubuntu host before enabling the feed.
 
-Example for a **future stable release**, after the key custody and independently recorded public fingerprint have been reviewed:
+Example for a **later stable release**, after the key custody and independently recorded public fingerprint have been reviewed:
 
 ```sh
-python3 tools/feed.py inspect --version 1.0.0 --output /secure/review/inspection.json
+python3 tools/feed.py inspect --version 0.15.0 --output /secure/review/inspection.json
 python3 tools/feed.py publish \
   --inspection /secure/review/inspection.json \
   --expected-archive-sha256 REVIEWED_PUBLIC_ASSET_SHA256 \
   --from-manifest-sha256 REVIEWED_INSTALLED_BUNDLE_MANIFEST_SHA256 \
-  --sequence 1 --key-id REVIEWED_KEY_ID \
+  --previous-feed /secure/review/stable.json \
+  --previous-signature /secure/review/stable.json.sig \
+  --sequence 2 --key-id REVIEWED_KEY_ID \
   --private-key /secure/offline/release-signing-key.pem \
   --expected-public-key-sha256 REVIEWED_ED25519_SPKI_SHA256 \
   --output-dir /secure/review/candidate
@@ -39,7 +41,7 @@ python3 tools/feed.py audit \
   --key-id REVIEWED_KEY_ID \
   --expected-archive-sha256 REVIEWED_PUBLIC_ASSET_SHA256 \
   --expected-from-manifest-sha256 REVIEWED_INSTALLED_BUNDLE_MANIFEST_SHA256 \
-  --expected-version 1.0.0
+  --expected-version 0.15.0
 ```
 
 The reviewer must get the fingerprint and asset SHA-256 through an independent
