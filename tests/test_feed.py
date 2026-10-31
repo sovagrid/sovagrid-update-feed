@@ -27,10 +27,13 @@ SOURCE = BLUEPRINT / "deploy" / "release_feed.py"
 
 
 def fixture_archive(marker: str, *, include_directories: bool = True,
-                    long_commits: bool = False, include_required: bool = True) -> bytes:
+                    long_commits: bool = False, include_required: bool = True,
+                    extra_files: dict[str, bytes] | None = None) -> bytes:
     files = {f"{name}/test.txt": (name + marker).encode() for name in sorted(feed.COMPONENTS)}
     if include_required:
         files.update({name: (name + marker).encode() for name in feed.REQUIRED})
+    if extra_files:
+        files.update(extra_files)
     files = dict(sorted(files.items()))
     commit_hash = hashlib.sha256 if long_commits else hashlib.sha1
     manifest = (json.dumps({"format": 1,
@@ -335,6 +338,17 @@ class Publisher(unittest.TestCase):
             archive.addfile(member)
         with self.assertRaisesRegex(feed.FeedError, "unsupported member"):
             feed.inspect_archive("0.5.2", output.getvalue())
+
+    def test_inspector_accepts_systemd_template_and_rejects_traversal(self) -> None:
+        template = "sovagrid-blueprint/deploy/sovagrid-external-agent-apply@.service"
+        archive = fixture_archive("template", extra_files={template: b"[Unit]\n"})
+        inspected = self.inspection("0.5.2", archive)
+        self.assertEqual(inspected["archive_sha256"], hashlib.sha256(archive).hexdigest())
+
+        traversal = fixture_archive(
+            "traversal", extra_files={"sovagrid-blueprint/deploy/../escape@.service": b"bad"})
+        with self.assertRaisesRegex(feed.FeedError, "unsafe member"):
+            self.inspection("0.5.2", traversal)
 
 
 if __name__ == "__main__":
