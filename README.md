@@ -1,6 +1,6 @@
 # SovaGrid update feed
 
-This repository is reserved for signed release metadata used by independent SovaGrid servers. It is **inactive**: there is no `stable.json`, detached signature, production signing key, or configured server trust anchor. Cloning this repository does not enable automatic updates.
+This repository is reserved for signed release metadata used by independent SovaGrid servers. It is **inactive**: there is no `stable.json`, detached signature, or enabled server subscription. A public Ed25519 trust anchor is pinned in current Blueprint source; the private signing key is held outside Git, CI, and managed servers. Cloning this repository does not enable automatic updates.
 
 The verifier and its security contract live in [sovagrid-blueprint](https://github.com/sovagrid/sovagrid-blueprint/blob/main/RELEASE_FEED.md). A future active channel will publish `stable.json` and `stable.json.sig` in this repository, while the exact server archives remain GitHub release assets. The detached Ed25519 signature covers the original bytes of `stable.json`; servers must pin the reviewed public key in their installed code before accepting it. No server should obtain its trust key from this feed.
 
@@ -10,7 +10,7 @@ Release metadata is kept separate from the server source bundle so that adding o
 
 `tools/feed.py` prepares metadata from the **public, already published** `server-vMAJOR.MINOR.PATCH/SovaGrid-server-source.tar.gz` asset. It refuses arbitrary URLs and unauthenticated mirrors. `inspect` downloads that asset, checks the archive layout, required source paths and bundle hashes, and reports its byte count, SHA-256, and the SHA-256 of the `sovagrid-bundle.json` inside it. A release reviewer records the archive SHA-256 independently. `publish` requires that reviewed SHA-256, downloads the asset again, compares every pin with the inspection, verifies a previous signed feed when extending a chain, and signs the final JSON bytes. `renew` extends only the UTC validity window while preserving the release chain and its archive pins. Neither command uploads to GitHub. These archive checks do not run the complete server update preflight; test the exact release asset with that preflight on a disposable Ubuntu host before enabling the feed.
 
-Example for a **future stable release**, after the private signing key has been created and reviewed outside this repository:
+Example for a **future stable release**, after the key custody and independently recorded public fingerprint have been reviewed:
 
 ```sh
 python3 tools/feed.py inspect --version 1.0.0 --output /secure/review/inspection.json
