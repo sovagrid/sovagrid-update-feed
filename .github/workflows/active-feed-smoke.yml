@@ -57,6 +57,12 @@ jobs:
           curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8766/healthz >/dev/null
       - name: Enable the published signed feed with the reviewed state revision
         run: |
+          sudo -n python3 -B -I - <<'PY'
+          import runpy
+          source = '/opt/sovagrid-src/sovagrid-blueprint/deploy/remote_update_worker.py'
+          worker = runpy.run_path(source, run_name='sovagrid_feed_diagnostic')
+          worker['preview']()
+          PY
           sudo -n python3 -B -I "$FEED_SCRIPT" status > "$RUNNER_TEMP/feed-before.json"
           revision=$(python3 - "$RUNNER_TEMP/feed-before.json" "$INITIAL_MANIFEST_SHA256" <<'PY'
           import json, re, sys
