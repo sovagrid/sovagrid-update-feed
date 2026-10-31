@@ -1,6 +1,6 @@
 # SovaGrid update feed
 
-This repository publishes signed release metadata for independent SovaGrid servers. The first stable transition is from server `v0.13.0` to [`v0.14.0`](https://github.com/sovagrid/sovagrid-blueprint/releases/tag/server-v0.14.0). A public Ed25519 trust anchor is pinned in the installed Blueprint source; the private signing key is held outside Git, CI, and managed servers. Cloning this repository does not enable automatic updates.
+This repository publishes signed release metadata for independent SovaGrid servers. The stable chain records `v0.13.0 → v0.14.0 → v0.14.1`; the current release is [`server-v0.14.1`](https://github.com/sovagrid/sovagrid-blueprint/releases/tag/server-v0.14.1). A public Ed25519 trust anchor is pinned in the installed Blueprint source; the private signing key is held outside Git, CI, and managed servers. Cloning this repository does not enable automatic updates. The updater bundled with `v0.13.0` and `v0.14.0` fails its own SSH gateway preview before it can read this feed; these existing installs need a separate one-time verified migration. New `v0.14.1` installations contain the fix and can subscribe for subsequent releases.
 
 The verifier and its security contract live in [sovagrid-blueprint](https://github.com/sovagrid/sovagrid-blueprint/blob/main/RELEASE_FEED.md). This repository contains `stable.json` and its detached `stable.json.sig`; exact server archives remain GitHub release assets. The detached Ed25519 signature covers the original bytes of `stable.json`; servers must pin the reviewed public key in their installed code before accepting it. No server obtains its trust key from this feed.
 
@@ -20,7 +20,7 @@ python3 tools/feed.py publish \
   --from-manifest-sha256 REVIEWED_INSTALLED_BUNDLE_MANIFEST_SHA256 \
   --previous-feed /secure/review/stable.json \
   --previous-signature /secure/review/stable.json.sig \
-  --sequence 2 --key-id REVIEWED_KEY_ID \
+  --sequence 3 --key-id REVIEWED_KEY_ID \
   --private-key /secure/offline/release-signing-key.pem \
   --expected-public-key-sha256 REVIEWED_ED25519_SPKI_SHA256 \
   --output-dir /secure/review/candidate
