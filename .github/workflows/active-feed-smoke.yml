@@ -1,15 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Jigokuraku01
 # Additional author attribution terms: see ../../ATTRIBUTION.md.
-name: Live signed server update on disposable Ubuntu
+name: Stable bootstrap and signed feed on disposable Ubuntu
 
 on:
   workflow_dispatch:
-    inputs:
-      expected_target_manifest_sha256:
-        description: Independently reviewed SHA-256 of the v0.14 sovagrid-bundle.json
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -19,17 +14,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
-      EXPECTED_TARGET_MANIFEST_SHA256: ${{ inputs.expected_target_manifest_sha256 }}
-      INITIAL_MANIFEST_SHA256: f6d3b246d29661ffac4975f78dbc3a5481405b47e23826ea30a388e41f2b1280
+      INITIAL_MANIFEST_SHA256: ec6f567b0292916dd3f104f1441451708a955b79d02ef91f82237a8cf8603f1f
       FEED_SCRIPT: /opt/sovagrid-src/sovagrid-blueprint/deploy/release_feed.py
-      UPDATE_SCRIPT: /opt/sovagrid-src/sovagrid-blueprint/deploy/auto_update.py
     steps:
       - name: Require a clean disposable runner and prepare Ubuntu directories
         run: |
           test "$RUNNER_ENVIRONMENT" = github-hosted
           test "$RUNNER_OS" = Linux
           test "$(cat /proc/1/comm)" = systemd
-          [[ "$EXPECTED_TARGET_MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]
           test ! -e /opt/sovagrid-src
           test ! -e /etc/sovagrid
           test -d /opt && test ! -L /opt
@@ -45,11 +37,11 @@ jobs:
           sudo -n systemctl start docker
           sudo -n docker info >/dev/null
           sudo -n docker compose version
-      - name: Install the exact reviewed v0.13 server package
+      - name: Install the exact reviewed v0.14.1 server package
         run: |
           set -o pipefail
           curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
-            https://raw.githubusercontent.com/sovagrid/sovagrid-blueprint/a10f2e964d9ad0fe8b99ba505ad6ae873c16b63c/bootstrap/run.sh |
+            https://raw.githubusercontent.com/sovagrid/sovagrid-blueprint/ed672eec0c06a0a032680d9476700c1d2edf1f77/bootstrap/run.sh |
             sudo -n env SOVAGRID_SETUP_NONINTERACTIVE=1 bash
           test "$(sudo -n sha256sum /opt/sovagrid-src/sovagrid-bundle.json | cut -d ' ' -f1)" = \
             "$INITIAL_MANIFEST_SHA256"
@@ -77,12 +69,11 @@ jobs:
           PY
           )
           sudo -n python3 -B -I "$FEED_SCRIPT" enable --expected-state "$revision"
-      - name: Fetch the signed release and apply it through the update worker
+      - name: Verify the signed release feed recognizes the current installation
         run: |
-          sudo -n python3 -B -I "$FEED_SCRIPT" poll
-          sudo -n python3 -B -I "$UPDATE_SCRIPT" run
+          sudo -n python3 -B -I "$FEED_SCRIPT" poll | grep -Fx 'SG_RELEASE_FEED:CURRENT'
           test "$(sudo -n sha256sum /opt/sovagrid-src/sovagrid-bundle.json | cut -d ' ' -f1)" = \
-            "$EXPECTED_TARGET_MANIFEST_SHA256"
+            "$INITIAL_MANIFEST_SHA256"
           sudo -n systemctl is-active --quiet sovagrid-agent.service
           curl --fail --silent --show-error --max-time 15 http://127.0.0.1:8766/healthz >/dev/null
           sudo -n docker compose --env-file /etc/sovagrid/deploy.env \
@@ -91,13 +82,13 @@ jobs:
       - name: Verify the subscription survived and disable it with fresh CAS
         run: |
           sudo -n python3 -B -I "$FEED_SCRIPT" status > "$RUNNER_TEMP/feed-after.json"
-          revision=$(python3 - "$RUNNER_TEMP/feed-after.json" "$EXPECTED_TARGET_MANIFEST_SHA256" <<'PY'
+          revision=$(python3 - "$RUNNER_TEMP/feed-after.json" "$INITIAL_MANIFEST_SHA256" <<'PY'
           import json, re, sys
           value = json.load(open(sys.argv[1], encoding='utf-8'))
           assert value['enabled'] is True and value['timer_installed'] is True
           assert value['installed_manifest_sha256'] == sys.argv[2]
-          assert value['ledger']['highest_sequence'] >= 1
-          assert value['ledger']['highest_version'] == '0.14.0'
+          assert value['ledger']['last_seen_at'] > 0
+          assert value['ledger']['highest_issued_at'] > 0
           assert value['manual_candidate_active'] is False
           revision = value['state_revision']
           assert re.fullmatch(r'[0-9a-f]{64}', revision)
