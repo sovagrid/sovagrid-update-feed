@@ -32,6 +32,7 @@ import urllib.request
 REPO = Path(__file__).resolve().parents[1]
 RELEASE_BASE = "https://github.com/sovagrid/sovagrid-blueprint/releases/download/"
 ARCHIVE_NAME = "SovaGrid-server-source.tar.gz"
+FEED_URL = "https://raw.githubusercontent.com/sovagrid/sovagrid-update-feed/main/stable.json"
 HOSTS = frozenset({"github.com", "release-assets.githubusercontent.com",
                    "objects.githubusercontent.com"})
 CDN_HOSTS = HOSTS - {"github.com"}
@@ -320,8 +321,8 @@ def read_previous(feed_path: Path | None, signature_path: Path | None,
         raise FeedError("previous feed and signature must be supplied together")
     if feed_path is None:
         return None
-    raw = feed_path.read_bytes()
-    signature = signature_path.read_bytes()
+    raw = _read_bounded(feed_path, MAX_FEED)
+    signature = _read_bounded(signature_path, 64)
     verify(raw, signature, der)
     return validate_feed(raw, key_id)
 
@@ -449,6 +450,53 @@ def audit(feed_path: Path, signature_path: Path, public_key_der_path: Path,
             "release": release}
 
 
+class RefuseFeedRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise FeedError("published feed redirected")
+
+
+def fetch_published_feed(url: str, limit: int) -> bytes:
+    """Read only the fixed public feed origin, without credentials or mirrors."""
+    if url not in (FEED_URL, FEED_URL + ".sig"):
+        raise FeedError("unexpected public feed URL")
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        urllib.request.HTTPSHandler(context=ssl.create_default_context()),
+        RefuseFeedRedirect(),
+    )
+    request = urllib.request.Request(url, headers={
+        "User-Agent": "SovaGrid-feed-audit/1", "Accept-Encoding": "identity",
+        "Cache-Control": "no-cache",
+    })
+    try:
+        with opener.open(request, timeout=20) as response:
+            if (response.status != 200 or response.geturl() != url or
+                    response.headers.get("Content-Encoding", "identity") != "identity"):
+                raise FeedError("invalid published feed response")
+            raw = response.read(limit + 1)
+    except (OSError, ValueError) as exc:
+        raise FeedError("published feed download failed") from exc
+    if not raw or len(raw) > limit:
+        raise FeedError("published feed size is invalid")
+    return raw
+
+
+def audit_published(feed_path: Path, signature_path: Path, public_key_der_path: Path,
+                    expected_public_key_sha256: str, key_id: str,
+                    expected_archive_sha256: str, expected_from_manifest_sha256: str,
+                    expected_version: str) -> dict:
+    """Check that the approved local signed pair is exactly what servers fetch."""
+    reviewed = audit(feed_path, signature_path, public_key_der_path,
+                     expected_public_key_sha256, key_id, expected_archive_sha256,
+                     expected_from_manifest_sha256, expected_version)
+    local_feed = _read_bounded(feed_path, MAX_FEED)
+    local_signature = _read_bounded(signature_path, 64)
+    if (fetch_published_feed(FEED_URL, MAX_FEED) != local_feed or
+            fetch_published_feed(FEED_URL + ".sig", 64) != local_signature):
+        raise FeedError("published feed differs from reviewed pair")
+    return reviewed
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subcommands = parser.add_subparsers(dest="command", required=True)
@@ -469,15 +517,17 @@ def main(argv: list[str]) -> int:
     publish_parser.add_argument("--expected-archive-sha256", required=True)
     publish_parser.add_argument("--from-manifest-sha256", required=True)
     publish_parser.add_argument("--sequence", type=int, required=True)
-    audit_parser = subcommands.add_parser("audit", help="verify a prepared pair without a signing key")
-    audit_parser.add_argument("--feed", type=Path, required=True)
-    audit_parser.add_argument("--signature", type=Path, required=True)
-    audit_parser.add_argument("--public-key-der", type=Path, required=True)
-    audit_parser.add_argument("--expected-public-key-sha256", required=True)
-    audit_parser.add_argument("--key-id", required=True)
-    audit_parser.add_argument("--expected-archive-sha256", required=True)
-    audit_parser.add_argument("--expected-from-manifest-sha256", required=True)
-    audit_parser.add_argument("--expected-version", required=True)
+    for name, help_text in (("audit", "verify a prepared pair without a signing key"),
+                            ("audit-published", "compare the published feed with the reviewed pair")):
+        audit_parser = subcommands.add_parser(name, help=help_text)
+        audit_parser.add_argument("--feed", type=Path, required=True)
+        audit_parser.add_argument("--signature", type=Path, required=True)
+        audit_parser.add_argument("--public-key-der", type=Path, required=True)
+        audit_parser.add_argument("--expected-public-key-sha256", required=True)
+        audit_parser.add_argument("--key-id", required=True)
+        audit_parser.add_argument("--expected-archive-sha256", required=True)
+        audit_parser.add_argument("--expected-from-manifest-sha256", required=True)
+        audit_parser.add_argument("--expected-version", required=True)
     args = parser.parse_args(argv)
     try:
         if args.command == "inspect":
@@ -487,7 +537,7 @@ def main(argv: list[str]) -> int:
             args.output.write_bytes(_encoded(result))
             print(json.dumps(result, sort_keys=True))
         elif args.command == "publish":
-            result = publish(_json(args.inspection.read_bytes()), args.expected_archive_sha256,
+            result = publish(_json(_read_bounded(args.inspection, MAX_FEED)), args.expected_archive_sha256,
                              args.from_manifest_sha256, args.key_id, args.private_key,
                              args.expected_public_key_sha256, args.sequence, args.output_dir,
                              args.previous_feed, args.previous_signature, args.lifetime_days)
@@ -501,10 +551,11 @@ def main(argv: list[str]) -> int:
                            args.lifetime_days)
             print("Prepared signed feed renewal at UTC epoch", result["issued_at"])
         else:
-            result = audit(args.feed, args.signature, args.public_key_der,
-                           args.expected_public_key_sha256, args.key_id,
-                           args.expected_archive_sha256, args.expected_from_manifest_sha256,
-                           args.expected_version)
+            audit_command = audit if args.command == "audit" else audit_published
+            result = audit_command(args.feed, args.signature, args.public_key_der,
+                                   args.expected_public_key_sha256, args.key_id,
+                                   args.expected_archive_sha256, args.expected_from_manifest_sha256,
+                                   args.expected_version)
             print(json.dumps(result, sort_keys=True))
     except (FeedError, OSError) as exc:
         print("SOVAGRID_FEED_REFUSE:" + str(exc), file=sys.stderr)

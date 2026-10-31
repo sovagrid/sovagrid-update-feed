@@ -207,6 +207,40 @@ class Publisher(unittest.TestCase):
                        self.fingerprint, "fixture-key", inspection["archive_sha256"],
                        "a" * 64, "0.5.2")
 
+    def test_published_audit_matches_exact_reviewed_pair(self) -> None:
+        pair = self.output("live-audit")
+        self.publish_one(self.archive1, "0.5.2", pair)
+        public_key = self.root / "live-public.der"
+        public_key.write_bytes(self.der)
+        inspection = self.inspection("0.5.2", self.archive1)
+        raw = (pair / "stable.json").read_bytes()
+        signature = (pair / "stable.json.sig").read_bytes()
+        options = ["audit-published", "--feed", str(pair / "stable.json"),
+                   "--signature", str(pair / "stable.json.sig"),
+                   "--public-key-der", str(public_key),
+                   "--expected-public-key-sha256", self.fingerprint,
+                   "--key-id", "fixture-key",
+                   "--expected-archive-sha256", inspection["archive_sha256"],
+                   "--expected-from-manifest-sha256", "a" * 64,
+                   "--expected-version", "0.5.2"]
+        with mock.patch.object(feed, "download_published_asset", return_value=self.archive1), \
+             mock.patch.object(feed, "fetch_published_feed", side_effect=[raw, signature]) as fetch, \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(feed.main(options), 0)
+        self.assertEqual([call.args[0] for call in fetch.call_args_list],
+                         [feed.FEED_URL, feed.FEED_URL + ".sig"])
+        with mock.patch.object(feed, "download_published_asset", return_value=self.archive1), \
+             mock.patch.object(feed, "fetch_published_feed", return_value=b"other"):
+            with self.assertRaisesRegex(feed.FeedError, "differs from reviewed pair"):
+                feed.audit_published(pair / "stable.json", pair / "stable.json.sig",
+                                     public_key, self.fingerprint, "fixture-key",
+                                     inspection["archive_sha256"], "a" * 64, "0.5.2")
+        with self.assertRaisesRegex(feed.FeedError, "unexpected public feed URL"):
+            feed.fetch_published_feed("https://example.invalid/stable.json", feed.MAX_FEED)
+        with self.assertRaisesRegex(feed.FeedError, "published feed redirected"):
+            feed.RefuseFeedRedirect().redirect_request(None, None, 302, "Found", {},
+                                                        feed.FEED_URL)
+
     def test_append_and_renew_with_monotonic_utc_issue_time(self) -> None:
         first = self.output("one")
         old = self.publish_one(self.archive1, "0.5.2", first)
@@ -264,6 +298,18 @@ class Publisher(unittest.TestCase):
             self.publish_one(self.archive2, "0.5.3", self.output("next"),
                              from_manifest=old["releases"][-1]["to_manifest_sha256"],
                              sequence=2, previous=first, issued_at=self.now - 10)
+
+    def test_previous_metadata_reads_are_bounded_before_verification(self) -> None:
+        previous_feed = self.root / "oversized-feed.json"
+        previous_sig = self.root / "oversized-feed.json.sig"
+        previous_feed.write_bytes(b"x" * (feed.MAX_FEED + 1))
+        previous_sig.write_bytes(bytes(64))
+        with self.assertRaisesRegex(feed.FeedError, "invalid signed feed size"):
+            feed.read_previous(previous_feed, previous_sig, self.der, "fixture-key")
+        previous_feed.write_bytes(b"{}")
+        previous_sig.write_bytes(bytes(65))
+        with self.assertRaisesRegex(feed.FeedError, "invalid signed feed size"):
+            feed.read_previous(previous_feed, previous_sig, self.der, "fixture-key")
 
     def test_url_key_and_bounds(self) -> None:
         self.assertEqual(feed.archive_url("0.5.2"),
