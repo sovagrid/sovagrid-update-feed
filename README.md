@@ -1,10 +1,10 @@
 # SovaGrid update feed
 
-This repository publishes signed release metadata for independent SovaGrid servers. The stable chain records `v0.13.0 → v0.14.0 → v0.14.1`; the current release is [`server-v0.14.1`](https://github.com/sovagrid/sovagrid-blueprint/releases/tag/server-v0.14.1). A public Ed25519 trust anchor is pinned in the installed Blueprint source; the private signing key is held outside Git, CI, and managed servers. Cloning this repository does not enable automatic updates. The updater bundled with `v0.13.0` and `v0.14.0` fails its own SSH gateway preview before it can read this feed. Use one manual update through current Connect to `v0.14.1` first; the migration and Web Agent rollback passed disposable Ubuntu tests from [v0.13.0](https://github.com/sovagrid/sovagrid-connect/actions/runs/41227574940) and [v0.14.0](https://github.com/sovagrid/sovagrid-connect/actions/runs/41227133745). New `v0.14.1` installations contain the fix and can subscribe for subsequent releases.
+This repository publishes signed release metadata for independent SovaGrid servers. The stable chain records `v0.13.0 → v0.14.0 → v0.14.1 → v1.0.0`; the current release is [`server-v1.0.0`](https://github.com/sovagrid/sovagrid-blueprint/releases/tag/server-v1.0.0). A public Ed25519 trust anchor is pinned in the installed Blueprint source; the private signing key is held outside Git, CI, and managed servers. Cloning this repository does not enable automatic updates. The updater bundled with `v0.13.0` and `v0.14.0` fails its own SSH gateway preview before it can read this feed. Use one manual update through current Connect to `v0.14.1` first; the migration and Web Agent rollback passed disposable Ubuntu tests from [v0.13.0](https://github.com/sovagrid/sovagrid-connect/actions/runs/41227574940) and [v0.14.0](https://github.com/sovagrid/sovagrid-connect/actions/runs/41227133745). New `v0.14.1` installations contain the fix and can subscribe for subsequent releases.
 
 The verifier and its security contract live in [sovagrid-blueprint](https://github.com/sovagrid/sovagrid-blueprint/blob/main/RELEASE_FEED.md). This repository contains `stable.json` and its detached `stable.json.sig`; exact server archives remain GitHub release assets. The detached Ed25519 signature covers the original bytes of `stable.json`; servers must pin the reviewed public key in their installed code before accepting it. No server obtains its trust key from this feed.
 
-Release metadata is kept separate from the server source bundle so that adding or updating the feed cannot change the source bundle's own SHA-256. An administrator enables the channel separately on each full-server installation in Web settings or a compatible Connect client. Until then, the one-candidate update timer remains available. A Hub with an external Agent uses its separate update path and cannot subscribe to this full-server feed yet.
+Release metadata is kept separate from the server source bundle so that adding or updating the feed cannot change the source bundle's own SHA-256. An administrator enables the channel separately on each full-server installation in Web settings or a compatible Connect client. Until then, the one-candidate update timer remains available. Version 1.0 also supports the separate backend for a fully activated Hub-only installation: it preserves the external Agent and its SSH transports. Hub-only 0.14.1 first needs a one-time manual bridge through Connect; this bridge and the following signed update/rollback passed a [disposable Ubuntu test](https://github.com/sovagrid/sovagrid-blueprint/actions/runs/41298989964). The installed updater of full 0.14.1 passed [signed upgrade, busy deferral and rollback](https://github.com/sovagrid/sovagrid-blueprint/actions/runs/41298983265).
 
 ## Reproducible publishing workflow
 
@@ -13,14 +13,14 @@ Release metadata is kept separate from the server source bundle so that adding o
 Example for a **later stable release**, after the key custody and independently recorded public fingerprint have been reviewed:
 
 ```sh
-python3 tools/feed.py inspect --version 0.15.0 --output /secure/review/inspection.json
+python3 tools/feed.py inspect --version 1.1.0 --output /secure/review/inspection.json
 python3 tools/feed.py publish \
   --inspection /secure/review/inspection.json \
   --expected-archive-sha256 REVIEWED_PUBLIC_ASSET_SHA256 \
   --from-manifest-sha256 REVIEWED_INSTALLED_BUNDLE_MANIFEST_SHA256 \
   --previous-feed /secure/review/stable.json \
   --previous-signature /secure/review/stable.json.sig \
-  --sequence 3 --key-id REVIEWED_KEY_ID \
+  --sequence 4 --key-id REVIEWED_KEY_ID \
   --private-key /secure/offline/release-signing-key.pem \
   --expected-public-key-sha256 REVIEWED_ED25519_SPKI_SHA256 \
   --output-dir /secure/review/candidate
@@ -41,7 +41,7 @@ python3 tools/feed.py audit \
   --key-id REVIEWED_KEY_ID \
   --expected-archive-sha256 REVIEWED_PUBLIC_ASSET_SHA256 \
   --expected-from-manifest-sha256 REVIEWED_INSTALLED_BUNDLE_MANIFEST_SHA256 \
-  --expected-version 0.15.0
+  --expected-version 1.1.0
 ```
 
 The reviewer must get the fingerprint and asset SHA-256 through an independent
